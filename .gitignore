@@ -1,0 +1,16 @@
+# Build artifacts
+src/CDSfold
+src/*.o
+*.o
+
+# Test files
+test_*.faa
+
+# Compiled benchmarks
+benchmark
+micro_benchmark
+
+# Temporary files
+*.tmp
+*.bak
+*~

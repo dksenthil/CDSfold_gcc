@@ -1,19 +1,33 @@
 /*
- * CDSfold.cpp
-
+ * CDSfold.cpp - Optimized for modern C++17 and GCC 15
  *
  *  Created on: Sep 2, 2014
  *      Author: terai
+ *  Optimized: 2025 - Modern C++17 performance improvements
  */
-#define MIN2(A, B)      ((A) < (B) ? (A) : (B))
-#define MAX2(A, B)      ((A) > (B) ? (A) : (B))
-#define TURN 3
+
+// Enable aggressive compiler optimizations for hot functions
+#pragma GCC optimize("O3,unroll-loops,inline-functions,fast-math")
+
+// Use vectorization hints where applicable
+#ifdef __AVX2__
+    #pragma GCC target("avx2,fma")
+#elif defined(__SSE4_2__)
+    #pragma GCC target("sse4.2")
+#endif
+// Modern C++17 constexpr functions for better optimization
+constexpr int MIN2(const int A, const int B) noexcept { return (A < B) ? A : B; }
+constexpr int MAX2(const int A, const int B) noexcept { return (A > B) ? A : B; }
+constexpr int TURN = 3;
 #include <cstdio>
 #include <iostream>
 #include <sstream>
-#include <time.h>
+#include <chrono>    // Modern timing
 #include <unistd.h>
 #include <string>
+#include <string_view>  // C++17 string optimization
+#include <array>        // Better than C arrays
+#include <memory>       // Smart pointers
 
 extern "C" {
 #include  "utils.h"
@@ -38,6 +52,7 @@ extern "C" {
 //#include <sys/resource.h>
 
 int *indx;
+// Keep C-style arrays for compatibility with existing function signatures
 int BP_pair[5][5] =
 /* _  A  C  G  U  */
 { { 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 5 }, { 0, 0, 0, 1, 0 }, { 0, 0, 2, 0, 3 }, {
@@ -49,16 +64,18 @@ int rtype[7] = { 0, 2, 1, 4, 3, 6, 5 };
 int test;
 
 using namespace std;
+
 int main(int argc, char *argv[]) {
-	//printf("%d\n%ld", INT_MAX, LONG_MAX);
-	int W = 0; // -w
-	string exc = ""; // -e
-	int m_disp = 0; // -M
-	int rand_tb_flg = 0; //-R
-	int rev_flg = 0; // -r
-	int part_opt_flg = 0; // -f and -t
-	int opt_fm = 0; // -f
-	int opt_to = 0; // -t
+	// Optimized variable initialization with modern C++
+	int W = 0;                        // -w window size
+	string exc;                       // -e excluded codons (reserve space for better performance)
+	exc.reserve(100);                 // Pre-allocate string space
+	bool m_disp = false;              // -M display flag (bool more efficient than int)
+	bool rand_tb_flg = false;         // -R random traceback flag
+	bool rev_flg = false;             // -r reverse flag
+	bool part_opt_flg = false;        // -f and -t partial optimization flag
+	int opt_fm = 0;                   // -f from position
+	int opt_to = 0;                   // -t to position
 	// get options
 	{
 		int opt;
@@ -71,21 +88,21 @@ int main(int argc, char *argv[]) {
 				exc = string(optarg);
 				break;
 			case 'M':
-				m_disp = 1;
+				m_disp = true;
 				break;
 			case 'R':
-				rand_tb_flg = 1;
+				rand_tb_flg = true;
 				break;
 			case 'r':
-				rev_flg = 1;
+				rev_flg = true;
 				break;
 			case 'f':
 				opt_fm = atoi(optarg);
-				part_opt_flg = 1;
+				part_opt_flg = true;
 				break;
 			case 't':
 				opt_to = atoi(optarg);
-				part_opt_flg = 1;
+				part_opt_flg = true;
 				break;
 
 			}
@@ -94,19 +111,14 @@ int main(int argc, char *argv[]) {
 	//exit(0);
 
 
-	// -R オプションに関するチェック
-	if(rand_tb_flg){
-		if(W!=0 || exc !="" || m_disp || rev_flg || part_opt_flg){
-			cerr << "The -R option must not be used together with other options." << endl;
-			return 0;
-		}
+	// -R option compatibility check (optimized with early return)
+	if(rand_tb_flg && (W != 0 || !exc.empty() || m_disp || rev_flg || part_opt_flg)) {
+		cerr << "The -R option must not be used together with other options." << endl;
+		return 1; // Return error code instead of 0
 	}
 
-
-	//int energy = E(5, 1, 1, 2, "ATGCATGC");
-	//int energy = E_Hairpin(5, 1, 1, 2, "ATGCATGC");
-
-	map<char, int> n2i = make_n2i();
+	// Initialize lookup tables (keep C-style for compatibility)
+	auto n2i = make_n2i();
 	char i2n[20];
 	make_i2n(i2n);
 
@@ -147,7 +159,7 @@ int main(int argc, char *argv[]) {
 			exit(1);
 		}
 
-		int n_inter = 0; //今の実装では、n_inter=1 or 2となる。
+		int n_inter = 0; // Current implementation: n_inter=1 or 2
 		int ofm[100];
 		int oto[100];
 		if(part_opt_flg){
@@ -200,17 +212,18 @@ int main(int argc, char *argv[]) {
 		int nuclen = aalen * 3;
 		int w_tmp;
 
-		if(W == 0){
+		// Optimized conditional logic
+		if (W == 0) {
 			w_tmp = nuclen;
 		}
-		else if(W < 10){
-			cerr << "W must be more than 10" << "(you used " << W << ")" <<endl;
+		else if (W < 10) {
+			cerr << "W must be more than 10 (you used " << W << ")" << endl;
 			exit(1);
 		}
-		else if(W > nuclen){
+		else if (W > nuclen) {
 			w_tmp = nuclen;
 		}
-		else{
+		else {
 			w_tmp = W;
 		}
 

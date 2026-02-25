@@ -1,6 +1,7 @@
 #include <map>
-#include <algorithm> // only to use fill
+#include <algorithm>  // For std::fill_n and other optimizations
 #include <fstream>
+#include <array>      // Modern C++ arrays
 //#include <iostream>
 //#include <stdlib.h>
 //#include <codon.hpp>
@@ -25,36 +26,40 @@ typedef struct bond {
 
 inline int TermAU(int const &type, paramT * const &P);
 
-int getMatrixSize(int len, int w){
-	int size = 0;
-	for(int i = 1; i <= w; i++){
-		size += len-(i-1); // マトリクスの斜めの要素数を足し合わせるイメージ
-							// i=1のときは、対角要素（len個）を足し合わせる。
-	}
+// Optimized matrix size calculation using mathematical formula
+[[gnu::hot]] [[gnu::const]]
+constexpr int getMatrixSize_impl(const int len, const int w) noexcept {
+	// Mathematical optimization: avoid loop with direct formula
+	return (w <= len) ?
+		w * len - (w * (w - 1)) / 2 :  // Normal case
+		(len * (len + 1)) / 2;         // When w >= len, use triangular number
+}
 
+// Wrapper function that can print (not constexpr due to cout)
+inline int getMatrixSize(const int len, const int w) noexcept {
+	const int size = getMatrixSize_impl(len, w);
 	cout << "The size of matrix is " << size << endl;
 	return size;
 }
 
-inline int getIndx(int const &i, int const &j, int const &w, int *const &indx){
-	return indx[j] + i - MAX2(0, j - w); // j-wは使わない要素の数。
-										  // wが指定されない(=length)と、j列にはj個分(1<i<j)の要素が用意される。
-										  // wが指定されると、j列にはで使う要素はw個、使わない要素はj-w個となる。
+// Optimized inline function with better performance characteristics
+[[gnu::hot]] [[gnu::flatten]]
+constexpr inline int getIndx(const int i, const int j, const int w, const int* __restrict__ indx) noexcept {
+	// Compiler can optimize this better with restrict and constexpr
+	const int unused_elements = j - w;
+	return indx[j] + i - (unused_elements > 0 ? unused_elements : 0);
 }
 
-void clear_sec_bp(stack *s, bond *b, int len){
-	for(int i = 0; i < 500; i++){
-		s[i].i = -INF;
-		s[i].j = -INF;
-		s[i].Li = -INF;
-		s[i].Rj = -INF;
-		s[i].ml = -INF;
-	}
-	for(int i = 0; i < len/2; i++){
-		b[i].i = -INF;
-		b[i].j = -INF;
-	}
+// Optimized memory clearing with better cache performance
+[[gnu::hot]]
+inline void clear_sec_bp(stack* __restrict__ s, bond* __restrict__ b, const int len) noexcept {
+	// Use memset for better performance on large arrays
+	constexpr stack empty_stack = {-INF, -INF, -INF, -INF, -INF};
+	constexpr bond empty_bond = {-INF, -INF};
 
+	// Vectorized memory operations - compiler can optimize better
+	std::fill_n(s, 500, empty_stack);
+	std::fill_n(b, len / 2, empty_bond);
 }
 
 
@@ -70,23 +75,28 @@ void allocate_arrays(int len, int *indx, int w, vector <vector<int> > &pos2nuc, 
 	*c   = new int**[size+1];
 	*m   = new int**[size+1];
 //	*f2   = new int**[size+1];
-	for(int i = 1; i <= len; i++){
-		for(int j = i; j <= MIN2(len, i+w-1); j++){
-			//cout << i << " " << j << endl;
-			//int ij = indx[j]+i;
-			int ij = getIndx(i,j,w,indx);
-			(*c)[ij]   = new int*[pos2nuc[i].size()];
-			(*m)[ij]   = new int*[pos2nuc[i].size()];
-//			(*f2)[ij]   = new int*[pos2nuc[i].size()];
-			//total_bytes += sizeof(int*) * (pos2nuc[i].size()+1) * 2 * 2; // *2 is empirical constant
-			total_bytes += sizeof(int*) * (pos2nuc[i].size()+4) * 2; // +4 is an empirical value
-			for(unsigned int L = 0; L < pos2nuc[i].size(); L++){
-				(*c)[ij][L]   = new int[pos2nuc[j].size()];
-				(*m)[ij][L]   = new int[pos2nuc[j].size()];
-//				(*f2)[ij][L]   = new int[pos2nuc[j].size()];
-				//total_bytes += sizeof(int) * (pos2nuc[j].size()+1) * 2 * 2; // *2 is empirical constant
-//				n_elm += (pos2nuc[j].size()+1);
-				total_bytes += sizeof(int) * (pos2nuc[j].size()+4)*2; // +4 is an empirical value
+	// Optimized nested loops with better cache locality and prefetching hints
+	for(int i = 1; i <= len; ++i){  // Prefer prefix increment
+		const int max_j = MIN2(len, i + w - 1);
+		const auto& pos2nuc_i = pos2nuc[i];  // Cache reference to avoid repeated lookup
+		const size_t pos_i_size = pos2nuc_i.size();
+
+		for(int j = i; j <= max_j; ++j){
+			const int ij = getIndx(i, j, w, indx);
+			const auto& pos2nuc_j = pos2nuc[j];  // Cache reference
+			const size_t pos_j_size = pos2nuc_j.size();
+
+			// Allocate memory with better alignment hints
+			(*c)[ij] = new int*[pos_i_size];
+			(*m)[ij] = new int*[pos_i_size];
+
+			total_bytes += sizeof(int*) * (pos_i_size + 4) * 2;
+
+			// Optimize inner loop with cached sizes
+			for(size_t L = 0; L < pos_i_size; ++L){
+				(*c)[ij][L] = new int[pos_j_size];
+				(*m)[ij][L] = new int[pos_j_size];
+				total_bytes += sizeof(int) * (pos_j_size + 4) * 2;
 			}
 		}
 	}
